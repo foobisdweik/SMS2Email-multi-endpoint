@@ -10,6 +10,8 @@ import com.google.protobuf.InvalidProtocolBufferException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import javax.mail.internet.AddressException
+import javax.mail.internet.InternetAddress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -110,7 +112,7 @@ object LegacySingleEndpointMigration : DataMigration<SmtpPreferences> {
               .setSmtpUser(currentData.smtpUser)
               .setSmtpPassword(currentData.smtpPassword)
               .setFromEmail(currentData.fromEmail)
-              .addAllToEmails(PreferencesManager.splitRecipients(currentData.toEmail))
+              .addAllToEmails(PreferencesManager.parseLegacyRecipients(currentData.toEmail))
               .setEncryptionMode(legacyMode)
               .build())
     }
@@ -136,6 +138,18 @@ object PreferencesManager {
   @JvmStatic
   fun splitRecipients(text: String): List<String> =
       text.split(',', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+  /**
+   * Splits the old single "To" setting into recipients. Older versions passed this value to
+   * `InternetAddress.parse`, so it can hold quoted names such as `"Doe, Jane" <jane@example.com>`.
+   * The same parser is used here, so that a comma inside quotes does not split an address.
+   */
+  fun parseLegacyRecipients(text: String): List<String> =
+      try {
+        InternetAddress.parse(text).map { it.toString() }.filter { it.isNotBlank() }
+      } catch (e: AddressException) {
+        splitRecipients(text)
+      }
 
   fun isValidEmail(address: String): Boolean = emailPattern.matches(address.trim())
 

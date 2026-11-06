@@ -1,5 +1,6 @@
 package io.github.sms2email.sms2email
 
+import javax.mail.internet.InternetAddress
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,6 +56,20 @@ class MultiEndpointTest {
     // The old fields are cleared, so the password is stored only once.
     assertEquals("", migrated.smtpPassword)
     assertEquals("", migrated.toEmail)
+  }
+
+  @Test
+  fun migration_keepsQuotedNamesWithCommasTogether() = runBlocking {
+    val legacy =
+        SmtpPreferences.newBuilder()
+            .setSmtpUser("me@gmail.com")
+            .setToEmail("\"Doe, Jane\" <jane@example.com>, bob@icloud.com")
+            .build()
+    val recipients = LegacySingleEndpointMigration.migrate(legacy).getEndpoints(0).toEmailsList
+    assertEquals(2, recipients.size)
+    assertEquals("jane@example.com", InternetAddress.parse(recipients[0]).single().address)
+    assertEquals("Doe, Jane", InternetAddress.parse(recipients[0]).single().personal)
+    assertEquals("bob@icloud.com", recipients[1])
   }
 
   @Test

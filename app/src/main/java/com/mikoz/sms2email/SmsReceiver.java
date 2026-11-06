@@ -11,10 +11,11 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SmsReceiver extends BroadcastReceiver {
-  // Android treats a receiver that holds goAsync() for too long (about 60 s for background
-  // broadcasts) as not responding. So the receiver releases it after this time at the latest.
+  // The telephony stack can send SMS_RECEIVED as a foreground broadcast. Android treats a
+  // receiver that holds such a broadcast for about 10 s as not responding, and goAsync() does not
+  // extend that limit. So the receiver releases the broadcast after this time at the latest.
   // Sending threads that still run after this point keep running, as in older app versions.
-  private static final long MAX_ASYNC_MILLIS = 45_000L;
+  private static final long MAX_ASYNC_MILLIS = 7_000L;
 
   protected MailSender mailSender = new MailSender();
 
