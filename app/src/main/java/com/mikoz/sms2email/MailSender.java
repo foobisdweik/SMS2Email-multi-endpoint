@@ -145,19 +145,29 @@ public class MailSender {
       showToast(context, "Failed to send email" + failureToast);
     }
     if (totalDelivered > 0) {
+      // The count is of messages that the SMTP servers accepted. A server can still bounce a
+      // message later, so the text does not claim delivery to the inbox.
+      String title =
+          "SMS from "
+              + subject
+              + ": accepted by SMTP server for "
+              + totalDelivered
+              + "/"
+              + totalRecipients
+              + " recipients";
+      // On a locked screen, show this version without the SMS text. SMS can hold codes.
+      NotificationCompat.Builder publicVersion =
+          new NotificationCompat.Builder(context, NotificationHelper.CHANNEL_ID)
+              .setContentTitle("SMS forwarded by email")
+              .setSmallIcon(android.R.drawable.ic_dialog_email);
       notify(
           context,
           SUCCESS_NOTIFICATION_ID,
           new NotificationCompat.Builder(context, NotificationHelper.CHANNEL_ID)
-              .setContentTitle(
-                  "Transferred SMS from "
-                      + subject
-                      + " ("
-                      + totalDelivered
-                      + "/"
-                      + totalRecipients
-                      + " recipients)")
+              .setContentTitle(title)
               .setContentText(content)
+              .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+              .setPublicVersion(publicVersion.build())
               .setSmallIcon(android.R.drawable.ic_dialog_email));
     }
   }
@@ -218,6 +228,15 @@ public class MailSender {
       InternetAddress from = new InternetAddress(config.getFromEmail(), subject, "UTF-8");
       for (String recipient : config.getToEmails()) {
         try {
+          // An earlier failure can close the connection. Reconnect, so that one broken
+          // send does not make every later recipient fail too.
+          if (!transport.isConnected()) {
+            transport.connect(
+                config.getSmtpHost(),
+                config.getSmtpPort(),
+                config.getSmtpUser(),
+                config.getSmtpPassword());
+          }
           Message message = new MimeMessage(session);
           message.setFrom(from);
           message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipient));

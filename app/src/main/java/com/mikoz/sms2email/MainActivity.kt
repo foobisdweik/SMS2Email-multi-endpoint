@@ -782,9 +782,13 @@ private fun rememberPreferenceTextState(
     onPersist: suspend (String) -> Unit,
 ): MutableState<String> {
   val inputState = rememberSaveable { mutableStateOf(storedValue) }
+  // The value this field saved most recently. When the store reports this value back, it is an
+  // echo of the field's own save. The user may have typed more since then, so the echo must not
+  // replace the newer text.
+  val lastPersisted = rememberSaveable { mutableStateOf(storedValue) }
 
   LaunchedEffect(storedValue) {
-    if (storedValue != inputState.value) {
+    if (storedValue != inputState.value && storedValue != lastPersisted.value) {
       inputState.value = storedValue
     }
   }
@@ -794,6 +798,7 @@ private fun rememberPreferenceTextState(
     if (currentValue == storedValue) return@LaunchedEffect
     delay(debounceMillis)
     if (currentValue == inputState.value && currentValue != storedValue) {
+      lastPersisted.value = currentValue
       onPersist(currentValue)
     }
   }
