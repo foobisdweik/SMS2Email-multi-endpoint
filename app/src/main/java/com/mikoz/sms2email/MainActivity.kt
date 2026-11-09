@@ -62,6 +62,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -76,9 +77,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import io.github.sms2email.sms2email.ui.theme.SMS2EmailTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
   private val smsPermissionGrantedFlow = MutableStateFlow(false)
@@ -357,14 +361,31 @@ fun MailPreferencesScreen(
       }
 
       Button(
-          onClick = {
-            Toast.makeText(context, "Sending email ...", Toast.LENGTH_SHORT).show()
-            MailSender().send(context, "[TEST]", "This is a test email.")
-          },
+          onClick = { queueTestEmail(context, coroutineScope, endpointId = null) },
           enabled = endpoints.any { it.enabled },
           modifier = Modifier.fillMaxWidth(),
       ) {
         Text("Send Test Email to All Enabled Endpoints")
+      }
+
+      // remember() keeps one flow, so that each redraw does not start a new database query.
+      val pendingFlow = remember { ForwardQueue.pendingCountFlow(context) }
+      val pendingCount by pendingFlow.collectAsState(initial = 0)
+      if (pendingCount > 0) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+              text =
+                  if (pendingCount == 1) "Outbox: 1 email waits to be sent."
+                  else "Outbox: $pendingCount emails wait to be sent.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onBackground,
+              modifier = Modifier.weight(1f),
+          )
+          TextButton(onClick = { ForwardQueue.cancelAll(context) }) { Text("Clear Outbox") }
+        }
       }
 
       Row(
@@ -733,11 +754,7 @@ private fun EndpointCard(
           horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
         OutlinedButton(
-            onClick = {
-              Toast.makeText(context, "Sending test via ${endpoint.label} ...", Toast.LENGTH_SHORT)
-                  .show()
-              MailSender().sendToEndpoint(context, id, "[TEST]", "This is a test email.")
-            },
+            onClick = { queueTestEmail(context, coroutineScope, endpointId = id) },
             modifier = Modifier.weight(1f),
         ) {
           Text("Test This Endpoint")
@@ -747,6 +764,26 @@ private fun EndpointCard(
           Text("Remove", modifier = Modifier.padding(start = 4.dp))
         }
       }
+    }
+  }
+}
+
+/**
+ * Puts a test email in the outbox. With [endpointId], only that endpoint sends it. Otherwise every
+ * enabled endpoint sends it.
+ */
+private fun queueTestEmail(context: Context, scope: CoroutineScope, endpointId: String?) {
+  scope.launch {
+    val result =
+        withContext(Dispatchers.IO) {
+          ForwardQueue.enqueue(context, "[TEST]", "This is a test email.", endpointId)
+        }
+    if (result.emails > 0) {
+      Toast.makeText(
+              context,
+              "Test queued: ${result.emails} email(s). It sends as soon as the network allows.",
+              Toast.LENGTH_SHORT)
+          .show()
     }
   }
 }
