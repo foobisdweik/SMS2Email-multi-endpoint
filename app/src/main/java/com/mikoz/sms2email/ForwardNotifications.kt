@@ -7,13 +7,14 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import java.util.UUID
 
 /** All notifications about forwarding. Each method is safe to call from a background thread. */
 object ForwardNotifications {
   const val SENDING_NOTIFICATION_ID = 3
   private const val NOTHING_TO_SEND_ID = 1
   private const val ACCEPTED_ID_BASE = 2_000_000
-  private const val ENDPOINT_PROBLEM_ID_BASE = 1000
+  private const val JOB_PROBLEM_ID_BASE = 1000
 
   private fun manager(context: Context): NotificationManager {
     NotificationHelper.createNotificationChannel(context)
@@ -24,8 +25,12 @@ object ForwardNotifications {
       NotificationCompat.Builder(context, NotificationHelper.CHANNEL_ID)
           .setSmallIcon(android.R.drawable.ic_dialog_email)
 
-  private fun endpointProblemId(endpoint: SmtpConfig) =
-      ENDPOINT_PROBLEM_ID_BASE + Math.floorMod(endpoint.id.hashCode(), 100_000)
+  /**
+   * Each job (one SMS, one endpoint, one recipient) has its own problem notification. A success of
+   * one job therefore never hides the failure of another job.
+   */
+  private fun jobProblemId(jobId: UUID) =
+      JOB_PROBLEM_ID_BASE + Math.floorMod(jobId.hashCode(), 1_000_000)
 
   fun buildSendingNotification(context: Context): Notification {
     NotificationHelper.createNotificationChannel(context)
@@ -71,6 +76,7 @@ object ForwardNotifications {
 
   fun showRetrying(
       context: Context,
+      jobId: UUID,
       endpoint: SmtpConfig,
       recipient: String,
       error: Throwable,
@@ -78,7 +84,7 @@ object ForwardNotifications {
   ) {
     manager(context)
         .notify(
-            endpointProblemId(endpoint),
+            jobProblemId(jobId),
             builder(context)
                 .setContentTitle("Still trying to send via ${endpoint.label}")
                 .setContentText("$recipient: ${error.message}")
@@ -92,6 +98,7 @@ object ForwardNotifications {
 
   fun showFailed(
       context: Context,
+      jobId: UUID,
       endpoint: SmtpConfig,
       recipient: String,
       sender: String,
@@ -105,7 +112,7 @@ object ForwardNotifications {
     showToast(context, "Failed to send email via ${endpoint.label}\n${error.message}")
     manager(context)
         .notify(
-            endpointProblemId(endpoint),
+            jobProblemId(jobId),
             builder(context)
                 .setContentTitle("SMS from $sender not sent via ${endpoint.label}")
                 .setContentText("$recipient: ${error.message}")
@@ -117,9 +124,9 @@ object ForwardNotifications {
                 .build())
   }
 
-  /** Removes an old problem notice for this endpoint, because a send through it worked. */
-  fun clearEndpointProblem(context: Context, endpoint: SmtpConfig) {
-    manager(context).cancel(endpointProblemId(endpoint))
+  /** Removes the "still trying" notice of one job, because that job succeeded. */
+  fun clearJobProblem(context: Context, jobId: UUID) {
+    manager(context).cancel(jobProblemId(jobId))
   }
 
   private fun showToast(context: Context, text: String) {

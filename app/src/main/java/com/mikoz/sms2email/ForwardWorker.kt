@@ -34,7 +34,7 @@ class ForwardWorker(context: Context, params: WorkerParameters) :
         val messageId = input.getString(ForwardQueue.KEY_MESSAGE_ID) ?: "<$id@sms2email.local>"
         val receivedAt = input.getLong(ForwardQueue.KEY_RECEIVED_AT, System.currentTimeMillis())
         val ignoreEnabled = input.getBoolean(ForwardQueue.KEY_IGNORE_ENABLED, false)
-        val body = ForwardQueue.readBody(applicationContext, input) ?: return@withContext drop()
+        val body = ForwardQueue.readBody(applicationContext, input)
 
         val endpoint = PreferencesManager.getEndpoints(applicationContext).find { it.id == endpointId }
         // The user removed or disabled the endpoint, or removed the recipient, after the SMS
@@ -45,6 +45,20 @@ class ForwardWorker(context: Context, params: WorkerParameters) :
           return@withContext drop()
         }
 
+        if (body == null) {
+          // The saved SMS text is missing, so the email cannot be built. Report it, because the
+          // user would otherwise never learn that this SMS was not forwarded.
+          ForwardNotifications.showFailed(
+              applicationContext,
+              id,
+              endpoint,
+              recipient,
+              sender,
+              IllegalStateException("The saved SMS text is missing."),
+              FailureKind.PERMANENT)
+          return@withContext Result.failure()
+        }
+
         try {
           SmtpClient.send(endpoint, recipient, sender, body, receivedAt, messageId)
         } catch (e: Exception) {
@@ -53,16 +67,17 @@ class ForwardWorker(context: Context, params: WorkerParameters) :
           return@withContext if (kind == FailureKind.TEMPORARY && attempt < MAX_ATTEMPTS) {
             // Report only repeated temporary failures. A single network hiccup is normal.
             if (attempt >= 3) {
-              ForwardNotifications.showRetrying(applicationContext, endpoint, recipient, e, attempt)
+              ForwardNotifications.showRetrying(applicationContext, id, endpoint, recipient, e, attempt)
             }
             Result.retry()
           } else {
-            ForwardNotifications.showFailed(applicationContext, endpoint, recipient, sender, e, kind)
+            ForwardNotifications.showFailed(applicationContext, id, endpoint, recipient, sender, e, kind)
             Result.failure()
           }
         }
 
-        ForwardNotifications.clearEndpointProblem(applicationContext, endpoint)
+        // Removes this job's own "still trying" notice. Other jobs keep their notices.
+        ForwardNotifications.clearJobProblem(applicationContext, id)
         showProgress(smsId, sender, body)
         Result.success()
       }

@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.map
 object ForwardQueue {
   const val TAG = "sms2email-forward"
   const val SMS_TAG_PREFIX = "sms2email-sms-"
+  private const val BODY_FILE_TAG_PREFIX = "sms2email-body-file-"
 
   const val KEY_SMS_ID = "sms_id"
   const val KEY_MESSAGE_ID = "message_id"
@@ -38,7 +39,9 @@ object ForwardQueue {
   // file, and the job stores only the file name.
   private const val MAX_INLINE_BODY_BYTES = 6_000
   private const val OUTBOX_DIR = "outbox"
-  private const val OUTBOX_FILE_MAX_AGE_MILLIS = 14L * 24 * 60 * 60 * 1000
+  // A file younger than this is never deleted, because another SMS may be between writing its file
+  // and saving its jobs.
+  private const val OUTBOX_FILE_MIN_AGE_MILLIS = 60L * 60 * 1000
 
   private const val INITIAL_BACKOFF_SECONDS = 30L
 
@@ -93,6 +96,9 @@ object ForwardQueue {
                     BackoffPolicy.EXPONENTIAL, INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
                 .addTag(TAG)
                 .addTag(SMS_TAG_PREFIX + smsId)
+                .apply {
+                  bodyData.getString(KEY_BODY_FILE)?.let { addTag(BODY_FILE_TAG_PREFIX + it) }
+                }
                 .build()
           }
         }
@@ -104,7 +110,7 @@ object ForwardQueue {
     }
     // Waiting for the result makes sure that the jobs are saved before the SMS receiver ends.
     WorkManager.getInstance(appContext).enqueue(requests).result.get()
-    deleteOldBodyFiles(appContext)
+    deleteUnusedBodyFiles(appContext)
     return Enqueued(requests.size, endpoints.count { it.toEmails.isNotEmpty() })
   }
 
@@ -148,13 +154,24 @@ object ForwardQueue {
   }
 
   /**
-   * Deletes body files that are older than any job can live. Jobs give up long before this age,
-   * so no job still needs these files.
+   * Deletes body files that no unfinished job needs. A job can wait for a network for any length
+   * of time, so the age of a file alone does not show that it is unused.
    */
-  private fun deleteOldBodyFiles(context: Context) {
-    val cutoff = System.currentTimeMillis() - OUTBOX_FILE_MAX_AGE_MILLIS
-    File(context.filesDir, OUTBOX_DIR).listFiles()?.forEach {
-      if (it.lastModified() < cutoff) it.delete()
+  private fun deleteUnusedBodyFiles(context: Context) {
+    val files = File(context.filesDir, OUTBOX_DIR).listFiles() ?: return
+    if (files.isEmpty()) return
+    val inUse =
+        WorkManager.getInstance(context)
+            .getWorkInfosByTag(TAG)
+            .get()
+            .filter { !it.state.isFinished }
+            .flatMap { it.tags }
+            .filter { it.startsWith(BODY_FILE_TAG_PREFIX) }
+            .map { it.removePrefix(BODY_FILE_TAG_PREFIX) }
+            .toSet()
+    val cutoff = System.currentTimeMillis() - OUTBOX_FILE_MIN_AGE_MILLIS
+    for (file in files) {
+      if (file.name !in inUse && file.lastModified() < cutoff) file.delete()
     }
   }
 }
