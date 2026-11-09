@@ -1,3 +1,16 @@
+# [1.2.0](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.1.36...v1.2.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* avoid broadcast timeout and keep quoted legacy recipients ([bcab707](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/bcab707621564224d97f8e0a4a813436e053c8f6))
+* reconnect after send failures and tighten notifications ([bf40a17](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/bf40a1792cd167844ee2f29fc1f12728e37bbab2))
+
+
+### Features
+
+* forward each SMS to multiple email endpoints ([994a828](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/994a8289787e4f83e80d1d8eb0c0ce7c3ea90f8b))
+
 ## [1.1.36](https://github.com/SMS2Email/SMS2Email/compare/v1.1.35...v1.1.36) (2026-09-18)
 
 
