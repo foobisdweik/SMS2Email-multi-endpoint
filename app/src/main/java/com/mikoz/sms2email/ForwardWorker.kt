@@ -5,7 +5,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
@@ -86,13 +85,15 @@ class ForwardWorker(context: Context, params: WorkerParameters) :
 
   /** Updates the notification for this SMS with the number of accepted emails so far. */
   private suspend fun showProgress(smsId: String, sender: String, body: String) {
-    val infos =
+    val total =
         WorkManager.getInstance(applicationContext)
             .getWorkInfosByTagFlow(ForwardQueue.SMS_TAG_PREFIX + smsId)
             .first()
-    // This job still counts as running here, so it is added to the succeeded count by hand.
-    val accepted = infos.count { it.state == WorkInfo.State.SUCCEEDED && it.id != id } + 1
-    ForwardNotifications.showAccepted(applicationContext, smsId, sender, body, accepted, infos.size)
+            .size
+    // The count is kept in one shared counter instead of being read from the job states. Two jobs
+    // that finish at the same moment could both read the states before either is marked done.
+    val accepted = AcceptedCounter.increment(applicationContext, smsId, total)
+    ForwardNotifications.showAccepted(applicationContext, smsId, sender, body, accepted, total)
   }
 
   /**
@@ -110,4 +111,24 @@ class ForwardWorker(context: Context, params: WorkerParameters) :
       ForegroundInfo(ForwardNotifications.SENDING_NOTIFICATION_ID, notification)
     }
   }
+}
+
+/**
+ * Counts the accepted emails of each SMS. The count is saved, so it stays right when Android
+ * restarts the app between jobs. The lock makes each increment complete before the next one reads.
+ */
+internal object AcceptedCounter {
+  private const val PREFS = "accepted_counts"
+  private val lock = Any()
+
+  fun increment(context: Context, smsId: String, total: Int): Int =
+      synchronized(lock) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val count = prefs.getInt(smsId, 0) + 1
+        val editor = prefs.edit()
+        // When all emails of the SMS are counted, the entry is not needed any more.
+        if (count >= total) editor.remove(smsId) else editor.putInt(smsId, count)
+        editor.commit()
+        count
+      }
 }
