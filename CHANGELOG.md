@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.3.1...v1.3.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* explain the From Email Address field in the app ([9257d0e](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/9257d0e1bfdc62aec2c6cd42a4e2603050a284c0))
+
 ## [1.3.1](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.3.0...v1.3.1) (2026-11-09)
 
 
