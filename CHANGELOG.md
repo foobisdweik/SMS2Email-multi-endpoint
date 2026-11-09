@@ -1,3 +1,16 @@
+# [1.3.0](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.2.0...v1.3.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* count accepted emails with a shared counter ([cab4462](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/cab4462079fa34aac21375c40052030ba33363f1))
+* keep per-recipient failures visible and keep body files in use ([1ebcba9](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/1ebcba9aebf29e515e6cdd708d432347c1159e7c))
+
+
+### Features
+
+* queue forwarded emails with WorkManager and retry failures ([f817e89](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/f817e895888cb457bb4b15be1c5e419b2311b1aa))
+
 # [1.2.0](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.1.36...v1.2.0) (2026-11-09)
 
 
