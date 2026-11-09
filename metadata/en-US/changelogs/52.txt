@@ -1,0 +1,7 @@
+## [1.3.1](https://github.com/foobisdweik/SMS2Email-multi-endpoint/compare/v1.3.0...v1.3.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* keep typed recipients and offer a fix for port/encryption mismatch ([0c7c623](https://github.com/foobisdweik/SMS2Email-multi-endpoint/commit/0c7c6232f0cead1659359d283726c49f4b25f114))
+
