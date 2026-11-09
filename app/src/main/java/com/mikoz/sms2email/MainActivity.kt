@@ -67,6 +67,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -631,7 +632,29 @@ private fun EndpointCard(
                 "Warning: SMTPS (SSL/TLS) typically uses port 465."
             else -> null
           }
-      if (warningText != null) WarningText(warningText)
+      if (warningText != null) WarningText(warningText, bottomPadding = 4)
+      // A port and encryption mode that do not match make every connection hang until it times
+      // out. So the app offers a one-tap fix.
+      val fix =
+          when {
+            portNumber == 465 &&
+                endpoint.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS ->
+                "Use SMTPS (SSL/TLS)" to SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS
+            portNumber == 587 &&
+                endpoint.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
+                "Use STARTTLS" to SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS
+            else -> null
+          }
+      if (fix != null) {
+        TextButton(
+            onClick = { update { setEncryptionMode(fix.second) } },
+            modifier = Modifier.padding(bottom = 8.dp),
+        ) {
+          Text("Fix: ${fix.first}")
+        }
+      } else if (warningText != null) {
+        Spacer(modifier = Modifier.height(8.dp))
+      }
 
       OutlinedTextField(
           value = smtpUserState.value,
@@ -735,7 +758,17 @@ private fun EndpointCard(
               newRecipientError.value = null
             },
             label = { Text("Add Recipient Address") },
-            modifier = Modifier.weight(1f),
+            supportingText = {
+              if (newRecipientState.value.isNotBlank() && newRecipientError.value == null) {
+                Text("Not added yet. Tap + or Done to add it.")
+              }
+            },
+            // Leaving the field also adds the typed address, so that an address is never lost
+            // because the user did not tap +.
+            modifier =
+                Modifier.weight(1f).onFocusChanged { focus ->
+                  if (!focus.isFocused && newRecipientState.value.isNotBlank()) addRecipient()
+                },
             singleLine = true,
             isError = newRecipientError.value != null,
             keyboardOptions =

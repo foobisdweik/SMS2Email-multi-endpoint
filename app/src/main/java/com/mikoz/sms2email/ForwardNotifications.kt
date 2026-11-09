@@ -92,6 +92,7 @@ object ForwardNotifications {
                     NotificationCompat.BigTextStyle()
                         .bigText(
                             "Attempt $attempt failed for $recipient: ${error.message}\n\n" +
+                                mismatchHint(endpoint) +
                                 "The email stays in the outbox. SMS2Email tries again later."))
                 .build())
   }
@@ -123,6 +124,21 @@ object ForwardNotifications {
                                 error.stackTraceToString()))
                 .build())
   }
+
+  /**
+   * A port and encryption mode that do not match make each connection hang until it times out.
+   * That looks like a network problem, so the notice names the likely cause.
+   */
+  private fun mismatchHint(endpoint: SmtpConfig): String =
+      when {
+        endpoint.smtpPort == 465 &&
+            endpoint.encryptionMode != SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
+            "Likely cause: port 465 needs the encryption \"SMTPS (SSL/TLS)\".\n\n"
+        endpoint.smtpPort == 587 &&
+            endpoint.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
+            "Likely cause: port 587 needs the encryption \"STARTTLS\".\n\n"
+        else -> ""
+      }
 
   /** Removes the "still trying" notice of one job, because that job succeeded. */
   fun clearJobProblem(context: Context, jobId: UUID) {
