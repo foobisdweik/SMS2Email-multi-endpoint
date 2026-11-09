@@ -69,6 +69,12 @@ module.exports = {
     [
       "@semantic-release/github",
       {
+        // This fork's history mentions upstream PR numbers, for example "(#142)", that do not
+        // exist here. Commenting on them returns 404 and fails the job after the release is
+        // published, so skip the comments and labels.
+        successComment: false,
+        releasedLabels: false,
+        failComment: false,
         assets: [
           // Upload the release APK to GitHub Releases
           { path: "app/build/outputs/apk/release/*.apk", label: "Android APK" },
