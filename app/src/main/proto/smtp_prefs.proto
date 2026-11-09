@@ -10,7 +10,23 @@ enum SmtpEncryptionMode {
   SMTP_ENCRYPTION_MODE_NONE = 2;
 }
 
+// One SMTP account that forwards every received SMS to its own list of recipients.
+message SmtpEndpoint {
+  string id = 1;
+  string name = 2;
+  bool enabled = 3;
+  string smtp_host = 4;
+  int32 smtp_port = 5;
+  string smtp_user = 6;
+  string smtp_password = 7;
+  string from_email = 8;
+  repeated string to_emails = 9;
+  SmtpEncryptionMode encryption_mode = 10;
+}
+
 message SmtpPreferences {
+  // Fields 1-7 hold the single-account settings of app versions before multi-endpoint
+  // support. They are read once, copied into `endpoints`, and then no longer used.
   string smtp_host = 1;
   int32 smtp_port = 2;
   string smtp_user = 3;
@@ -18,4 +34,8 @@ message SmtpPreferences {
   string from_email = 5;
   string to_email = 6;
   SmtpEncryptionMode encryption_mode = 7;
+
+  repeated SmtpEndpoint endpoints = 8;
+  // True after the legacy fields were copied into `endpoints`.
+  bool legacy_migrated = 9;
 }

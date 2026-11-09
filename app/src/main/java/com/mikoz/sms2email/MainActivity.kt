@@ -26,6 +26,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.key
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -173,44 +189,9 @@ fun MailPreferencesScreen(
     modifier: Modifier = Modifier,
 ) {
 
-  val config by
-      PreferencesManager.smtpConfigFlow(context)
-          .collectAsState(initial = PreferencesManager.defaultConfig)
-  val smtpHostState =
-      rememberPreferenceTextState(config.smtpHost) {
-        PreferencesManager.updateSmtpHost(context, it)
-      }
-  val smtpPortState =
-      rememberPreferenceTextState(config.smtpPort.toString()) { value ->
-        value.toIntOrNull()?.let { PreferencesManager.updateSmtpPort(context, it) }
-      }
-  val smtpUserState =
-      rememberPreferenceTextState(config.smtpUser) {
-        PreferencesManager.updateSmtpUser(context, it)
-      }
-  val smtpPasswordState =
-      rememberPreferenceTextState(config.smtpPassword) {
-        PreferencesManager.updateSmtpPassword(context, it)
-      }
-  val fromEmailState =
-      rememberPreferenceTextState(config.fromEmail) {
-        PreferencesManager.updateFromEmail(context, it)
-      }
-  val toEmailState =
-      rememberPreferenceTextState(config.toEmail) { PreferencesManager.updateToEmail(context, it) }
-
+  val endpoints by
+      PreferencesManager.endpointsFlow(context).collectAsState(initial = emptyList())
   val coroutineScope = rememberCoroutineScope()
-
-  val portNumber = smtpPortState.value.toIntOrNull()
-
-  val encryptionExpandedState = rememberSaveable { mutableStateOf(false) }
-  val encryptionLabel =
-      when (config.encryptionMode) {
-        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE -> "None"
-        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS -> "SMTPS (SSL/TLS)"
-        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS -> "STARTTLS"
-        else -> "STARTTLS"
-      }
 
   Box(modifier = modifier.fillMaxSize()) {
     Column(
@@ -319,10 +300,241 @@ fun MailPreferencesScreen(
       }
 
       Text(
-          text = "SMTP Preferences",
+          text = "Email Endpoints",
           style = MaterialTheme.typography.titleLarge,
           color = MaterialTheme.colorScheme.onBackground,
-          modifier = Modifier.padding(bottom = 16.dp),
+          modifier = Modifier.padding(bottom = 4.dp),
+      )
+      Text(
+          text =
+              "Each endpoint is one email account that sends the SMS. Every enabled endpoint " +
+                  "sends a copy to each of its recipients. One Gmail account can also send to " +
+                  "iCloud or other addresses.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onBackground,
+          modifier = Modifier.padding(bottom = 12.dp),
+      )
+
+      if (endpoints.isEmpty()) {
+        Text(
+            text = "No endpoint yet. Add one below.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+      }
+
+      for (endpoint in endpoints) {
+        key(endpoint.id) {
+          EndpointCard(
+              context = context,
+              endpoint = endpoint,
+              onRemove = {
+                coroutineScope.launch { PreferencesManager.removeEndpoint(context, endpoint.id) }
+              },
+          )
+        }
+      }
+
+      Row(
+          modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        for (preset in EndpointPreset.entries) {
+          OutlinedButton(
+              onClick = {
+                coroutineScope.launch { PreferencesManager.addEndpoint(context, preset) }
+              },
+              modifier = Modifier.weight(1f),
+              contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+          ) {
+            Text(
+                text = "+ " + if (preset == EndpointPreset.CUSTOM) "Custom" else preset.displayName,
+                maxLines = 1,
+            )
+          }
+        }
+      }
+
+      Button(
+          onClick = {
+            Toast.makeText(context, "Sending email ...", Toast.LENGTH_SHORT).show()
+            MailSender().send(context, "[TEST]", "This is a test email.")
+          },
+          enabled = endpoints.any { it.enabled },
+          modifier = Modifier.fillMaxWidth(),
+      ) {
+        Text("Send Test Email to All Enabled Endpoints")
+      }
+
+      Row(
+          modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp),
+          horizontalArrangement = Arrangement.End,
+      ) {
+        Text(
+            text = "Licenses...",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier =
+                Modifier.clickable {
+                  context.startActivity(Intent(context, AboutActivity::class.java))
+                },
+        )
+      }
+    }
+  }
+}
+
+/** The settings card for one endpoint (one SMTP account and its recipients). */
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun EndpointCard(
+    context: Context,
+    endpoint: SmtpConfig,
+    onRemove: () -> Unit,
+) {
+  val id = endpoint.id
+  val coroutineScope = rememberCoroutineScope()
+  fun update(change: SmtpEndpoint.Builder.() -> Unit) {
+    coroutineScope.launch { PreferencesManager.updateEndpoint(context, id, change) }
+  }
+
+  // A new, empty endpoint starts open so that the user can fill it in at once.
+  val expandedState = rememberSaveable {
+    mutableStateOf(endpoint.smtpUser.isBlank() || endpoint.toEmails.isEmpty())
+  }
+  val confirmRemoveState = rememberSaveable { mutableStateOf(false) }
+
+  val nameState =
+      rememberPreferenceTextState(endpoint.name) { value ->
+        PreferencesManager.updateEndpoint(context, id) { setName(value) }
+      }
+  val smtpHostState =
+      rememberPreferenceTextState(endpoint.smtpHost) { value ->
+        PreferencesManager.updateEndpoint(context, id) { setSmtpHost(value) }
+      }
+  val smtpPortState =
+      rememberPreferenceTextState(endpoint.smtpPort.toString()) { value ->
+        value.toIntOrNull()?.let { port ->
+          PreferencesManager.updateEndpoint(context, id) { setSmtpPort(port) }
+        }
+      }
+  val smtpUserState =
+      rememberPreferenceTextState(endpoint.smtpUser) { value ->
+        PreferencesManager.updateEndpoint(context, id) { setSmtpUser(value.trim()) }
+      }
+  val smtpPasswordState =
+      rememberPreferenceTextState(endpoint.smtpPassword) { value ->
+        PreferencesManager.updateEndpoint(context, id) { setSmtpPassword(value) }
+      }
+  val fromEmailState =
+      rememberPreferenceTextState(endpoint.fromEmail) { value ->
+        PreferencesManager.updateEndpoint(context, id) { setFromEmail(value.trim()) }
+      }
+  val newRecipientState = rememberSaveable { mutableStateOf("") }
+  val newRecipientError = rememberSaveable { mutableStateOf<String?>(null) }
+
+  val portNumber = smtpPortState.value.toIntOrNull()
+  val encryptionExpandedState = rememberSaveable { mutableStateOf(false) }
+  val encryptionLabel =
+      when (endpoint.encryptionMode) {
+        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE -> "None"
+        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS -> "SMTPS (SSL/TLS)"
+        SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS -> "STARTTLS"
+        else -> "STARTTLS"
+      }
+
+  fun addRecipient() {
+    val parts = PreferencesManager.splitRecipients(newRecipientState.value)
+    val invalid = parts.filterNot { PreferencesManager.isValidEmail(it) }
+    when {
+      parts.isEmpty() -> newRecipientError.value = "Enter an email address."
+      invalid.isNotEmpty() ->
+          newRecipientError.value = "Not a valid email address: " + invalid.joinToString(", ")
+      else -> {
+        newRecipientError.value = null
+        newRecipientState.value = ""
+        coroutineScope.launch {
+          for (part in parts) PreferencesManager.addRecipient(context, id, part)
+        }
+      }
+    }
+  }
+
+  if (confirmRemoveState.value) {
+    AlertDialog(
+        onDismissRequest = { confirmRemoveState.value = false },
+        title = { Text("Remove endpoint?") },
+        text = { Text("\"${endpoint.label}\" and its recipients will be deleted.") },
+        confirmButton = {
+          TextButton(
+              onClick = {
+                confirmRemoveState.value = false
+                onRemove()
+              },
+          ) {
+            Text("Remove")
+          }
+        },
+        dismissButton = {
+          TextButton(onClick = { confirmRemoveState.value = false }) { Text("Cancel") }
+        },
+    )
+  }
+
+  Card(
+      modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+      colors =
+          CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+          ),
+      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+      shape = MaterialTheme.shapes.medium,
+  ) {
+    Column(modifier = Modifier.padding(12.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier =
+                Modifier.weight(1f).clickable { expandedState.value = !expandedState.value },
+        ) {
+          Text(
+              text = endpoint.label,
+              style = MaterialTheme.typography.titleMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          val count = endpoint.toEmails.size
+          Text(
+              text =
+                  (if (endpoint.enabled) "Enabled" else "Disabled") +
+                      " · " +
+                      (if (count == 1) "1 recipient" else "$count recipients"),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+            checked = endpoint.enabled,
+            onCheckedChange = { checked -> update { setEnabled(checked) } },
+        )
+        IconButton(onClick = { expandedState.value = !expandedState.value }) {
+          Icon(
+              imageVector =
+                  if (expandedState.value) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+              contentDescription = if (expandedState.value) "Collapse" else "Expand",
+          )
+        }
+      }
+
+      if (!expandedState.value) return@Column
+
+      Spacer(modifier = Modifier.height(8.dp))
+
+      OutlinedTextField(
+          value = nameState.value,
+          onValueChange = { nameState.value = it },
+          label = { Text("Endpoint Name") },
+          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+          singleLine = true,
       )
 
       OutlinedTextField(
@@ -367,66 +579,38 @@ fun MailPreferencesScreen(
             expanded = encryptionExpandedState.value,
             onDismissRequest = { encryptionExpandedState.value = false },
         ) {
-          DropdownMenuItem(
-              text = { Text("STARTTLS") },
-              onClick = {
-                encryptionExpandedState.value = false
-                coroutineScope.launch {
-                  PreferencesManager.updateEncryptionMode(
-                      context,
-                      SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS,
-                  )
-                }
-              },
-          )
-          DropdownMenuItem(
-              text = { Text("SMTPS (SSL/TLS)") },
-              onClick = {
-                encryptionExpandedState.value = false
-                coroutineScope.launch {
-                  PreferencesManager.updateEncryptionMode(
-                      context,
-                      SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS,
-                  )
-                }
-              },
-          )
-          DropdownMenuItem(
-              text = { Text("None") },
-              onClick = {
-                encryptionExpandedState.value = false
-                coroutineScope.launch {
-                  PreferencesManager.updateEncryptionMode(
-                      context,
-                      SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE,
-                  )
-                }
-              },
-          )
+          val modes =
+              listOf(
+                  "STARTTLS" to SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_STARTTLS,
+                  "SMTPS (SSL/TLS)" to SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS,
+                  "None" to SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE,
+              )
+          for ((label, mode) in modes) {
+            DropdownMenuItem(
+                text = { Text(label) },
+                onClick = {
+                  encryptionExpandedState.value = false
+                  update { setEncryptionMode(mode) }
+                },
+            )
+          }
         }
       }
 
       val warningText =
           when {
-            config.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE ->
+            endpoint.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_NONE ->
                 "Warning: No encryption selected. This may expose credentials and email content."
             portNumber == 465 &&
-                config.encryptionMode != SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
+                endpoint.encryptionMode != SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
                 "Warning: Port 465 is typically used with SMTPS (SSL/TLS)."
             portNumber != null &&
                 portNumber != 465 &&
-                config.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
+                endpoint.encryptionMode == SmtpEncryptionMode.SMTP_ENCRYPTION_MODE_SMTPS ->
                 "Warning: SMTPS (SSL/TLS) typically uses port 465."
             else -> null
           }
-      if (warningText != null) {
-        Text(
-            text = warningText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
-      }
+      if (warningText != null) WarningText(warningText)
 
       OutlinedTextField(
           value = smtpUserState.value,
@@ -434,18 +618,22 @@ fun MailPreferencesScreen(
           label = { Text("SMTP Username") },
           modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
           singleLine = true,
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
       )
 
-      if (config.smtpHost.contains("gmail", ignoreCase = true) &&
+      if (endpoint.isGmail &&
           smtpUserState.value.isNotBlank() &&
-          smtpUserState.value != fromEmailState.value) {
-        Text(
-            text =
-                "Warning: For Gmail, the SMTP username should be your full email address (same as From Email Address).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
+          smtpUserState.value.trim() != fromEmailState.value.trim()) {
+        WarningText(
+            "Warning: For Gmail, the SMTP username should be your full email address " +
+                "(same as From Email Address).")
+      }
+      if (endpoint.isICloud &&
+          smtpUserState.value.isNotBlank() &&
+          !smtpUserState.value.contains("@")) {
+        WarningText(
+            "Warning: For iCloud, the SMTP username should be your full iCloud Mail address, " +
+                "for example name@icloud.com.")
       }
 
       OutlinedTextField(
@@ -457,27 +645,21 @@ fun MailPreferencesScreen(
           visualTransformation = PasswordVisualTransformation(),
       )
 
-      if (config.smtpHost.contains("gmail", ignoreCase = true) &&
-          config.smtpPassword.replace(" ", "").length != 16) {
-        Text(
-            text =
-                "Your 16-digit Google \"App password\" needs to be entered, not your Google Account password.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        Text(
-            text = "Generate App Password",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-            textDecoration = TextDecoration.Underline,
-            modifier =
-                Modifier.padding(bottom = 12.dp).clickable {
-                  val url = "https://myaccount.google.com/apppasswords"
-                  val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                  context.startActivity(intent)
-                },
-        )
+      if (endpoint.isGmail && endpoint.smtpPassword.replace(" ", "").length != 16) {
+        WarningText(
+            "Your 16-digit Google \"App password\" needs to be entered, not your Google " +
+                "Account password.",
+            bottomPadding = 8)
+        LinkText("Generate App Password", "https://myaccount.google.com/apppasswords", context)
+      }
+      if (endpoint.isICloud &&
+          endpoint.smtpPassword.replace("-", "").replace(" ", "").length != 16) {
+        WarningText(
+            "An Apple \"app-specific password\" (format xxxx-xxxx-xxxx-xxxx) needs to be " +
+                "entered, not your Apple Account password. Create it under Sign-In and " +
+                "Security > App-Specific Passwords.",
+            bottomPadding = 8)
+        LinkText("Open Apple Account", "https://account.apple.com/account/manage", context)
       }
 
       OutlinedTextField(
@@ -489,41 +671,108 @@ fun MailPreferencesScreen(
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
       )
 
-      OutlinedTextField(
-          value = toEmailState.value,
-          onValueChange = { toEmailState.value = it },
-          label = { Text("To Email Address") },
-          modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-          singleLine = true,
-          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+      Text(
+          text = "Recipients",
+          style = MaterialTheme.typography.titleSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(bottom = 4.dp),
       )
-
-      Button(
-          onClick = {
-            Toast.makeText(context, "Sending email ...", Toast.LENGTH_SHORT).show()
-            MailSender().send(context, "[TEST]", "This is a test email.")
-          },
-          modifier = Modifier.fillMaxWidth(),
-      ) {
-        Text("Send Test Email")
+      if (endpoint.toEmails.isEmpty()) {
+        WarningText("Add at least one recipient. This endpoint sends nothing until then.")
+      }
+      for (address in endpoint.toEmails) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+              text = address,
+              style = MaterialTheme.typography.bodyLarge,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.weight(1f),
+          )
+          IconButton(
+              onClick = {
+                coroutineScope.launch {
+                  PreferencesManager.removeRecipient(context, id, address)
+                }
+              },
+          ) {
+            Icon(Icons.Filled.Close, contentDescription = "Remove $address")
+          }
+        }
       }
 
       Row(
-          modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp),
-          horizontalArrangement = Arrangement.End,
+          modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+          verticalAlignment = Alignment.CenterVertically,
       ) {
-        Text(
-            text = "Licenses...",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier =
-                Modifier.clickable {
-                  context.startActivity(Intent(context, AboutActivity::class.java))
-                },
+        OutlinedTextField(
+            value = newRecipientState.value,
+            onValueChange = {
+              newRecipientState.value = it
+              newRecipientError.value = null
+            },
+            label = { Text("Add Recipient Address") },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            isError = newRecipientError.value != null,
+            keyboardOptions =
+                KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { addRecipient() }),
         )
+        IconButton(onClick = { addRecipient() }) {
+          Icon(Icons.Filled.Add, contentDescription = "Add recipient")
+        }
+      }
+      newRecipientError.value?.let { WarningText(it) }
+
+      Spacer(modifier = Modifier.height(12.dp))
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        OutlinedButton(
+            onClick = {
+              Toast.makeText(context, "Sending test via ${endpoint.label} ...", Toast.LENGTH_SHORT)
+                  .show()
+              MailSender().sendToEndpoint(context, id, "[TEST]", "This is a test email.")
+            },
+            modifier = Modifier.weight(1f),
+        ) {
+          Text("Test This Endpoint")
+        }
+        TextButton(onClick = { confirmRemoveState.value = true }) {
+          Icon(Icons.Filled.Delete, contentDescription = null)
+          Text("Remove", modifier = Modifier.padding(start = 4.dp))
+        }
       }
     }
   }
+}
+
+@Composable
+private fun WarningText(text: String, bottomPadding: Int = 12) {
+  Text(
+      text = text,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.error,
+      modifier = Modifier.padding(bottom = bottomPadding.dp),
+  )
+}
+
+@Composable
+private fun LinkText(text: String, url: String, context: Context) {
+  Text(
+      text = text,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.primary,
+      textDecoration = TextDecoration.Underline,
+      modifier =
+          Modifier.padding(bottom = 12.dp).clickable {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+          },
+  )
 }
 
 @Composable
@@ -533,9 +782,13 @@ private fun rememberPreferenceTextState(
     onPersist: suspend (String) -> Unit,
 ): MutableState<String> {
   val inputState = rememberSaveable { mutableStateOf(storedValue) }
+  // The value this field saved most recently. When the store reports this value back, it is an
+  // echo of the field's own save. The user may have typed more since then, so the echo must not
+  // replace the newer text.
+  val lastPersisted = rememberSaveable { mutableStateOf(storedValue) }
 
   LaunchedEffect(storedValue) {
-    if (storedValue != inputState.value) {
+    if (storedValue != inputState.value && storedValue != lastPersisted.value) {
       inputState.value = storedValue
     }
   }
@@ -545,6 +798,7 @@ private fun rememberPreferenceTextState(
     if (currentValue == storedValue) return@LaunchedEffect
     delay(debounceMillis)
     if (currentValue == inputState.value && currentValue != storedValue) {
+      lastPersisted.value = currentValue
       onPersist(currentValue)
     }
   }
