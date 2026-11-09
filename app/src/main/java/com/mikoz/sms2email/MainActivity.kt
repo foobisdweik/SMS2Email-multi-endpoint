@@ -710,6 +710,23 @@ private fun EndpointCard(
           value = fromEmailState.value,
           onValueChange = { fromEmailState.value = it },
           label = { Text("From Email Address") },
+          supportingText = {
+            Text(
+                when {
+                  endpoint.isGmail ->
+                      "The sender address of each forwarded email. Use your Gmail address, " +
+                          "the same as the SMTP Username. Gmail replaces other addresses " +
+                          "unless you set them up as aliases in Gmail."
+                  endpoint.isICloud ->
+                      "The sender address of each forwarded email. Use your iCloud Mail " +
+                          "address or one of its aliases. iCloud rejects other addresses."
+                  else ->
+                      "The sender address of each forwarded email. Most servers accept only " +
+                          "the address of the account you log in with."
+                } +
+                    " This is not where the SMS goes: add those addresses under Recipients. " +
+                    "The SMS phone number appears as the sender name.")
+          },
           modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
           singleLine = true,
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
